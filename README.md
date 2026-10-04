@@ -18,10 +18,10 @@ SkyCraft is made for Windows. This script handles what's different on the Deck:
 Minecraft runs as a Windows program in the same Proton prefix as Skyrim, because SkyCraft's two
 halves talk through Windows shared memory. Skyrim draws everything, and Minecraft stays hidden.
 
-> **Status: experimental.** The installer has been tested against a simulated Steam library, and
-> SkyCraft's Prism Launcher has been run under Proton 9 and Proton 11 (its sign-in reaches
-> Microsoft). Full gameplay on real Deck hardware hasn't been confirmed yet. Please open an issue
-> with your results. SkyCraft itself is early too, so back up your saves.
+> **Status: experimental.** Tested end to end on desktop Arch Linux with Steam's Skyrim 1.7.104 and
+> Proton Experimental (11.0): install, Minecraft sign-in, SkyCraft loading, Minecraft linking to
+> Skyrim and in-game play all work. It hasn't been run on Steam Deck hardware yet; please open an
+> issue with your results. SkyCraft itself is early too, so back up your saves.
 
 ## What you need
 
