@@ -28,8 +28,14 @@ halves talk through Windows shared memory. Skyrim draws everything, and Minecraf
 - **Skyrim Special Edition** (or Anniversary Edition) on Steam, game version **1.6.x / 1.7.x**.
   SkyCraft is developed on **1.7.104**.
 - A Microsoft account that owns **Minecraft: Java Edition**.
-- These downloads from Nexus Mods (a free account works; use **Manual Download**). Leave them in
-  `~/Downloads`:
+- Three mods from Nexus Mods, **downloaded by you** (see below).
+
+> [!IMPORTANT]
+> **These Nexus files don't download automatically, not even on the Steam Deck.** Nexus only lets
+> you download them from its website while logged in. Before running the installer, open each
+> link below in the Deck's browser (Desktop Mode), log in to Nexus (a free account works), click
+> **Manual Download** and leave the file in **`~/Downloads`**. The installer finds them there.
+> Everything else, SkyCraft included, it downloads by itself.
 
   | Mod | File |
   |---|---|
@@ -45,7 +51,8 @@ Everything here happens in **Desktop Mode** (Steam button > Power > Switch to De
 
 1. **Start Skyrim once from Steam** and get to its main menu, then quit. That creates its Proton
    prefix.
-2. **Download the Nexus files above** into `~/Downloads`.
+2. **Download the three Nexus files above yourself**, in the browser, into `~/Downloads`. The
+   installer stops and tells you which one is missing if it can't find them.
 3. **Open Konsole** and run:
 
    ```sh
