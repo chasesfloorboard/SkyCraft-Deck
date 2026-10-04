@@ -357,12 +357,48 @@ else:
 open(path, "w", encoding="utf-8").write(text)
 EOF
 	ok "unpacked to the Proton prefix (C:\\users\\steamuser\\AppData\\Local\\SkyCraft)"
+	use_wine_vcruntime_for_prism
 	if [[ -f $dir/Prism/accounts.json ]] && grep -q '"type"' "$dir/Prism/accounts.json"; then
 		ok "a Microsoft account is signed in"
 	else
 		warn "no Minecraft account signed in yet: run  ./skycraft-deck.sh signin  next"
 	fi
 	rm -rf "$tmp"
+}
+
+# Skyrim's Steam install puts the Visual C++ 2015 runtime (msvcp140 14.0) in its prefix, and Prism,
+# built with a current Visual Studio, crashes on start with it (a null read in msvcp140's mutex
+# code). Wine's own runtime is new enough, so tell Wine to give Prism that one. Only Prism's
+# programs are affected; Skyrim and Minecraft's Java keep theirs.
+use_wine_vcruntime_for_prism() {
+	# Wine rewrites user.reg when the prefix's wineserver exits, so it mustn't be running. Its
+	# working folder is /tmp/.wine-<uid>/server-<device>-<inode of the prefix>.
+	local server pid
+	server=$(stat -c '%d %i' "$PFX" | awk '{printf "server-%x-%x", $1, $2}')
+	for pid in $(pgrep -x wineserver 2>/dev/null); do
+		if [[ $(readlink "/proc/$pid/cwd" 2>/dev/null) == */"$server" ]]; then
+			die "Skyrim (or something else in its Proton prefix) is running. Quit it, then run this again."
+		fi
+	done
+	python3 - "$PFX/user.reg" <<'PY'
+import sys, time
+path = sys.argv[1]
+text = open(path, encoding="utf-8", errors="surrogateescape", newline="").read()
+dlls = ["concrt140", "msvcp140", "msvcp140_1", "msvcp140_2", "msvcp140_atomic_wait", "vcruntime140", "vcruntime140_1"]
+body = "".join('"%s"="builtin"\n' % d for d in dlls)
+for exe in ["prismlauncher.exe", "prismlauncher_filelink.exe", "prismlauncher_updater.exe"]:
+    header = "[Software\\\\Wine\\\\AppDefaults\\\\" + exe + "\\\\DllOverrides]"
+    section = header + " %d\n" % time.time() + body
+    at = text.find(header)
+    if at >= 0:
+        end = text.find("\n\n", at)
+        end = len(text) if end < 0 else end + 1
+        text = text[:at] + section + text[end:]
+    else:
+        text = text.rstrip("\n") + "\n\n" + section
+open(path, "w", encoding="utf-8", errors="surrogateescape", newline="").write(text)
+PY
+	ok "Prism uses Wine's Visual C++ runtime (Skyrim's 2015 one crashes it)"
 }
 
 # Steam starts SkyrimSELauncher.exe; swap SKSE's loader in, so Skyrim starts with SKSE in Game Mode.
