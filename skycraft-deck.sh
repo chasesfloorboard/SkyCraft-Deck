@@ -212,6 +212,46 @@ PY
 # ---------------------------------------------------------------------------------------------
 # install
 
+# SkyCraft.dll and Prism are built with a current Visual Studio and need its C++ runtime (14.40 or
+# newer); with older ones they crash on their first mutex. Windows PCs have it from Windows Update,
+# but Skyrim's Steam install only puts the 2015 runtime (14.0) in its Proton prefix. Install
+# Microsoft's current one there.
+install_vcredist() {
+	step "Microsoft Visual C++ runtime"
+	local dll=$PFX/drive_c/windows/system32/msvcp140.dll have minor
+	have=$(pe_version "$dll" 2>/dev/null || echo 0.0.0)
+	minor=$(cut -d. -f2 <<<"$have")
+	if [[ ${have%%.*} == 14 && $minor -ge 40 ]]; then
+		ok "version $have"
+		return
+	fi
+	need_prefix_idle
+	local cache=${XDG_CACHE_HOME:-$HOME/.cache}/skycraft-deck
+	mkdir -p "$cache"
+	say "  Skyrim's prefix has version $have; SkyCraft needs 14.40 or newer. Downloading Microsoft's..."
+	curl -fL --progress-bar -o "$cache/vc_redist.x64.exe" https://aka.ms/vc14/vc_redist.x64.exe ||
+		curl -fL --progress-bar -o "$cache/vc_redist.x64.exe" https://aka.ms/vs/17/release/vc_redist.x64.exe ||
+		die "couldn't download the Visual C++ runtime from Microsoft"
+	say "  installing it into Skyrim's prefix (a minute)"
+	run_in_prefix "$cache/vc_redist.x64.exe" /install /quiet /norestart >/dev/null 2>&1 || true
+	have=$(pe_version "$dll" 2>/dev/null || echo 0.0.0)
+	minor=$(cut -d. -f2 <<<"$have")
+	[[ ${have%%.*} == 14 && $minor -ge 40 ]] || die "installing the Visual C++ runtime didn't work (msvcp140 is still $have)"
+	ok "version $have"
+}
+
+# Wine rewrites user.reg when the prefix's wineserver exits, so nothing may be running in it while
+# we change it. Its working folder is /tmp/.wine-<uid>/server-<device>-<inode of the prefix>.
+need_prefix_idle() {
+	local server pid
+	server=$(stat -c '%d %i' "$PFX" | awk '{printf "server-%x-%x", $1, $2}')
+	for pid in $(pgrep -x wineserver 2>/dev/null); do
+		if [[ $(readlink "/proc/$pid/cwd" 2>/dev/null) == */"$server" ]]; then
+			die "Skyrim (or something else in its Proton prefix) is running. Quit it, then run this again."
+		fi
+	done
+}
+
 install_skse() {
 	step "SKSE64"
 	local archive have=''
@@ -366,20 +406,10 @@ EOF
 	rm -rf "$tmp"
 }
 
-# Skyrim's Steam install puts the Visual C++ 2015 runtime (msvcp140 14.0) in its prefix, and Prism,
-# built with a current Visual Studio, crashes on start with it (a null read in msvcp140's mutex
-# code). Wine's own runtime is new enough, so tell Wine to give Prism that one. Only Prism's
-# programs are affected; Skyrim and Minecraft's Java keep theirs.
+# Prism also gets Wine's own C++ runtime (14.42), so it starts even if the prefix's runtime is
+# rolled back (Steam re-running Skyrim's 2015 installer, say). Only Prism's programs are affected.
 use_wine_vcruntime_for_prism() {
-	# Wine rewrites user.reg when the prefix's wineserver exits, so it mustn't be running. Its
-	# working folder is /tmp/.wine-<uid>/server-<device>-<inode of the prefix>.
-	local server pid
-	server=$(stat -c '%d %i' "$PFX" | awk '{printf "server-%x-%x", $1, $2}')
-	for pid in $(pgrep -x wineserver 2>/dev/null); do
-		if [[ $(readlink "/proc/$pid/cwd" 2>/dev/null) == */"$server" ]]; then
-			die "Skyrim (or something else in its Proton prefix) is running. Quit it, then run this again."
-		fi
-	done
+	need_prefix_idle
 	python3 - "$PFX/user.reg" <<'PY'
 import sys, time
 path = sys.argv[1]
@@ -429,6 +459,7 @@ cmd_install() {
 	need_prefix
 	ok "Proton prefix: $PFX"
 
+	install_vcredist
 	install_skse
 	install_address_library
 	install_alternate_start
@@ -490,18 +521,9 @@ find_proton() {
 	PROTON=$(printf '%s\n' "${candidates[@]}" | sort -V | tail -n1)
 }
 
-cmd_signin() {
-	find_skyrim
-	need_prefix
-	local prism=$LOCALAPPDATA/SkyCraft/Prism/prismlauncher.exe
-	[[ -f $prism ]] || die "SkyCraft's Prism Launcher isn't unpacked yet; run  ./skycraft-deck.sh install  first"
-	find_proton
-	step "Opening Prism Launcher with $(basename "$PROTON")"
-	cat <<EOF
-  In Prism: Accounts (top right) > Manage Accounts > Add Microsoft. Prism shows a code and
-  a QR code: open the link on your phone (or any browser), enter the code and sign in. Then
-  close Prism. Don't launch the SkyCraft instance from here: Skyrim starts it.
-EOF
+# Runs a Windows program in Skyrim's prefix with Skyrim's Proton, the way Steam would, and waits.
+run_in_prefix() {
+	[[ -n ${PROTON:-} ]] || find_proton
 	# Proton runs inside the Steam Linux Runtime its toolmanifest.vdf names, as under Steam: Wine's
 	# HTTPS (Prism's sign-in and downloads) uses that runtime's GnuTLS and fails in the wrong one.
 	local runtime='' tool lib dir
@@ -517,10 +539,25 @@ EOF
 	export STEAM_COMPAT_DATA_PATH=$COMPAT STEAM_COMPAT_CLIENT_INSTALL_PATH=$STEAM_ROOT \
 		STEAM_COMPAT_INSTALL_PATH=$GAME SteamAppId=$APPID SteamGameId=$APPID
 	if [[ -n $runtime ]]; then
-		"$runtime" --verb=waitforexitandrun -- "$PROTON/proton" waitforexitandrun "$prism"
+		"$runtime" --verb=waitforexitandrun -- "$PROTON/proton" waitforexitandrun "$@"
 	else
-		"$PROTON/proton" waitforexitandrun "$prism"
+		"$PROTON/proton" waitforexitandrun "$@"
 	fi
+}
+
+cmd_signin() {
+	find_skyrim
+	need_prefix
+	local prism=$LOCALAPPDATA/SkyCraft/Prism/prismlauncher.exe
+	[[ -f $prism ]] || die "SkyCraft's Prism Launcher isn't unpacked yet; run  ./skycraft-deck.sh install  first"
+	[[ -n ${PROTON:-} ]] || find_proton
+	step "Opening Prism Launcher with $(basename "$PROTON")"
+	cat <<EOF
+  In Prism: Accounts (top right) > Manage Accounts > Add Microsoft. Prism shows a code and
+  a QR code: open the link on your phone (or any browser), enter the code and sign in. Then
+  close Prism. Don't launch the SkyCraft instance from here: Skyrim starts it.
+EOF
+	run_in_prefix "$prism"
 	if grep -qs '"type"' "$(dirname "$prism")/accounts.json"; then
 		ok "signed in. Start Skyrim from Steam."
 	else
