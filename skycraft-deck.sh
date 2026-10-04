@@ -9,7 +9,8 @@
 #   ./skycraft-deck.sh uninstall   remove what this script installed (--purge: Minecraft too)
 #
 # Environment overrides: STEAM_ROOT (Steam's folder), DOWNLOADS (where Nexus downloads are),
-# SKYCRAFT_ZIP (a local SkyCraft-<version>.zip instead of the latest GitHub release).
+# SKYCRAFT_ZIP (a local SkyCraft-<version>.zip instead of the latest GitHub release),
+# SKYCRAFT_MC_MEMORY (Minecraft's memory limit in MB; 3072 on a Steam Deck by default).
 
 set -euo pipefail
 
@@ -398,12 +399,41 @@ open(path, "w", encoding="utf-8").write(text)
 EOF
 	ok "unpacked to the Proton prefix (C:\\users\\steamuser\\AppData\\Local\\SkyCraft)"
 	use_wine_vcruntime_for_prism
+	set_minecraft_memory "$dir/Prism/instances/SkyCraft/instance.cfg"
 	if [[ -f $dir/Prism/accounts.json ]] && grep -q '"type"' "$dir/Prism/accounts.json"; then
 		ok "a Microsoft account is signed in"
 	else
 		warn "no Minecraft account signed in yet: run  ./skycraft-deck.sh signin  next"
 	fi
 	rm -rf "$tmp"
+}
+
+# Minecraft's memory limit. SkyCraft's instance allows 4 GB; on a Steam Deck (16 GB shared with
+# the GPU, Skyrim taking 2-3 GB) 3 GB leaves more room and means less garbage collection. The
+# bundle's instance.cfg comes back with every update, so this runs on every install.
+# SKYCRAFT_MC_MEMORY=<MB> sets it anywhere.
+set_minecraft_memory() {
+	local cfg=$1 mb=${SKYCRAFT_MC_MEMORY:-} why
+	local dmi=${DMI_DIR:-/sys/devices/virtual/dmi/id}
+	if [[ -n $mb ]]; then
+		[[ $mb =~ ^[0-9]+$ && $mb -ge 1024 ]] || die "SKYCRAFT_MC_MEMORY must be a number of MB, 1024 or more"
+		why="SKYCRAFT_MC_MEMORY"
+	elif [[ $(cat "$dmi/board_vendor" 2>/dev/null) == Valve* ]] &&
+		[[ $(cat "$dmi/product_name" 2>/dev/null) =~ ^(Jupiter|Galileo)$ ]]; then
+		mb=3072
+		why="Steam Deck"
+	else
+		return 0
+	fi
+	[[ -f $cfg ]] || return 0
+	if grep -q '^MaxMemAlloc=' "$cfg"; then
+		sed -i "s/^MaxMemAlloc=.*/MaxMemAlloc=$mb/" "$cfg"
+	else
+		printf 'MaxMemAlloc=%s\n' "$mb" >>"$cfg"
+	fi
+	grep -q '^OverrideMemory=true' "$cfg" || sed -i 's/^OverrideMemory=.*/OverrideMemory=true/' "$cfg"
+	grep -q '^OverrideMemory=' "$cfg" || printf 'OverrideMemory=true\n' >>"$cfg"
+	ok "Minecraft's memory limit: $mb MB ($why)"
 }
 
 # Prism also gets Wine's own C++ runtime (14.42), so it starts even if the prefix's runtime is

@@ -89,7 +89,7 @@ Everything here happens in **Desktop Mode** (Steam button > Power > Switch to De
 
 Overrides: `DOWNLOADS=/path` (where to look for the Nexus files), `STEAM_ROOT=/path` (Steam's
 folder) and `SKYCRAFT_ZIP=/path/SkyCraft-x.y.z.zip` (a local SkyCraft release instead of the
-latest one).
+latest one) and `SKYCRAFT_MC_MEMORY=<MB>` (Minecraft's memory limit).
 
 ## Good to know
 
@@ -97,7 +97,11 @@ latest one).
   an SKSE build (and Address Library) for the new version. Download the new files and run `install`
   again. A Skyrim update or **Verify integrity of game files** also puts Bethesda's launcher back.
   Running `install` again fixes that.
-- **Memory:** Minecraft takes up to 4 GB on top of Skyrim. Keep other Skyrim mods light.
+- **Memory:** on a Steam Deck the installer limits Minecraft to 3 GB (it's 4 GB elsewhere); in
+  testing, Minecraft used about 3.3 GB and Skyrim about 2.2 GB. Set your own limit with
+  `SKYCRAFT_MC_MEMORY=<MB> ./skycraft-deck.sh install`. Keep other Skyrim mods light.
+- **Frame rate:** both games share the CPU. On the Deck, cap the frame rate at 30 (Quick Access
+  menu > Performance) for even frame times.
 - **Where things are** (inside `steamapps/compatdata/489830/pfx/drive_c/users/steamuser/`):
   - SkyCraft's log: `Documents/My Games/Skyrim Special Edition/SKSE/SkyCraft.log`
   - Minecraft, Prism, the sign-in and your SkyCraft world: `AppData/Local/SkyCraft/`
