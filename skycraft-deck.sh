@@ -216,7 +216,7 @@ install_skse() {
 	step "SKSE64"
 	local archive have=''
 	[[ -f $GAME/skse64_loader.exe ]] && have=1
-	if ! archive=$(newest_download 'skse64_2_*.7z' '*Skyrim Script Extender*.7z' '*-30379-*.7z' '*-30379-*.zip'); then
+	if ! archive=$(newest_download 'skse64_2_*.7z' '*Skyrim Script Extender*.7z' '*[- ]30379[- ]*.7z' '*[- ]30379[- ]*.zip'); then
 		if [[ -n $have ]]; then
 			ok "already installed"
 			return
@@ -252,7 +252,7 @@ install_skse() {
 install_address_library() {
 	step "Address Library for SKSE Plugins"
 	local archive
-	if ! archive=$(newest_download '*All in one (Anniversary Edition)*' '*-32444-*'); then
+	if ! archive=$(newest_download '*Address Library*' '*All in one (Anniversary Edition)*' '*[- ]32444[- ]*'); then
 		if compgen -G "$GAME/Data/SKSE/Plugins/versionlib-*.bin" >/dev/null; then
 			ok "already installed"
 			return
@@ -275,7 +275,7 @@ install_address_library() {
 install_alternate_start() {
 	step "Alternate Start - Live Another Life (optional, recommended)"
 	local archive
-	if ! archive=$(newest_download '*Alternate Start*' '*-272-*'); then
+	if ! archive=$(newest_download '*Alternate Start*' '*-272-*' '* 272 [0-9]*'); then
 		warn "not in $DOWNLOADS, skipped. Skyrim's opening (cart ride, Helgen) may leave you stuck with"
 		warn "SkyCraft; get it from https://www.nexusmods.com/skyrimspecialedition/mods/272 or play from a save after Helgen."
 		return
