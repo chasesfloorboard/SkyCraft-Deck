@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=SkyCraft Installer
+Comment=Installs SkyCraft for Skyrim Special Edition on Steam Deck
+Icon=applications-games
+Terminal=true
+Exec=bash -c "if curl -fsSL https://raw.githubusercontent.com/chasesfloorboard/SkyCraft-Deck/main/skycraft-deck.sh -o /tmp/skycraft-deck.sh; then SKYCRAFT_PAUSE=1 exec bash /tmp/skycraft-deck.sh guided; else echo 'Could not download the SkyCraft installer. Check your internet connection and try again.'; read -r -p 'Press Enter to close this window. ' x; fi"

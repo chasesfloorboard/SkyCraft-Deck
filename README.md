@@ -28,59 +28,58 @@ halves talk through Windows shared memory. Skyrim draws everything, and Minecraf
 - **Skyrim Special Edition** (or Anniversary Edition) on Steam, game version **1.6.x / 1.7.x**.
   SkyCraft is developed on **1.7.104**.
 - A Microsoft account that owns **Minecraft: Java Edition**.
-- Three mods from Nexus Mods, **downloaded by you** (see below).
-
-> [!IMPORTANT]
-> **These Nexus files don't download automatically, not even on the Steam Deck.** Nexus only lets
-> you download them from its website while logged in. Before running the installer, open each
-> link below in the Deck's browser (Desktop Mode), log in to Nexus (a free account works), click
-> **Manual Download** and leave the file in **`~/Downloads`**. The installer finds them there.
-> Everything else, SkyCraft included, it downloads by itself.
-
-  | Mod | File |
-  |---|---|
-  | [SKSE64](https://www.nexusmods.com/skyrimspecialedition/mods/30379?tab=files) | the build for **your** game version (not GOG) |
-  | [Address Library for SKSE Plugins](https://www.nexusmods.com/skyrimspecialedition/mods/32444?tab=files) | **All in one (Anniversary Edition)** |
-  | [Alternate Start - Live Another Life](https://www.nexusmods.com/skyrimspecialedition/mods/272?tab=files) | main file. Optional, but strongly recommended: Skyrim's scripted opening can leave you stuck with SkyCraft |
-
-The script downloads SkyCraft itself (its latest GitHub release).
+- A free **Nexus Mods** account. The installer opens three mod pages for you, and you press
+  download on each (Nexus doesn't let installers download them for you).
 
 ## Install
 
 Everything here happens in **Desktop Mode** (Steam button > Power > Switch to Desktop).
 
-1. **Start Skyrim once from Steam** and get to its main menu, then quit. That creates its Proton
-   prefix.
-2. **Download the three Nexus files above yourself**, in the browser, into `~/Downloads`. The
-   installer stops and tells you which one is missing if it can't find them.
-3. **Open Konsole** and run:
+1. **Download the installer:**
+   **[SkyCraft-Installer.desktop](https://github.com/chasesfloorboard/SkyCraft-Deck/releases/latest/download/SkyCraft-Installer.desktop)**
+2. **Open your Downloads folder and double-click `SkyCraft-Installer.desktop`.** If it asks
+   whether to run or execute it, choose **Execute** / **Continue**.
+3. **Follow the window that opens.** It does everything in order and tells you when it needs you:
+   - If Skyrim isn't installed yet, it opens Steam to install it. If Skyrim has never been
+     started, it starts it once: wait for the main menu, then quit.
+   - It opens the three Nexus Mods pages. On each, log in, press **Manual Download** on the file
+     it names, then **Slow download**. Leave the files in Downloads. The window ticks each one
+     off as it arrives:
 
-   ```sh
-   cd ~
-   curl -fsSLO https://raw.githubusercontent.com/chasesfloorboard/SkyCraft-Deck/main/skycraft-deck.sh
-   chmod +x skycraft-deck.sh
-   ./skycraft-deck.sh install
-   ```
+     | Mod | File |
+     |---|---|
+     | [SKSE64](https://www.nexusmods.com/skyrimspecialedition/mods/30379?tab=files) | **Skyrim Script Extender (SKSE64) Steam** (not GOG) |
+     | [Address Library for SKSE Plugins](https://www.nexusmods.com/skyrimspecialedition/mods/32444?tab=files) | **All in one (Anniversary Edition)** |
+     | [Alternate Start - Live Another Life](https://www.nexusmods.com/skyrimspecialedition/mods/272?tab=files) | main file. Optional, but strongly recommended: Skyrim's scripted opening can leave you stuck with SkyCraft |
 
-4. **Sign in to Minecraft:**
-
-   ```sh
-   ./skycraft-deck.sh signin
-   ```
-
-   Prism Launcher opens. Go to **Accounts > Manage Accounts > Add Microsoft**. It shows a code and
-   a QR code: open the link on your phone, enter the code and sign in. Then close Prism. (Don't
-   launch the instance from Prism. Skyrim does that.)
-5. **Set up controls.** SkyCraft is played with keyboard and mouse, so give Skyrim a keyboard and
+   - It installs everything (it downloads SkyCraft itself).
+   - It opens Prism Launcher so you can **sign in to Minecraft**: **Accounts > Manage Accounts >
+     Add Microsoft**, then open the link on your phone (or scan the QR code), enter the code and
+     sign in. Close Prism when your name shows up. (Don't press Launch. Skyrim does that.)
+   - It adds **SkyCraft** to your app menu (under Games). Open it later to update, sign in
+     again, or uninstall (right-click it for those options).
+4. **Set up controls.** SkyCraft is played with keyboard and mouse, so give Skyrim a keyboard and
    mouse Steam Input layout. See **[docs/controls.md](docs/controls.md)**.
-6. **Play.** Go back to Game Mode and start Skyrim. The first start, Prism downloads Minecraft 26.3,
+5. **Play.** Go back to Game Mode and start Skyrim. The first start, Prism downloads Minecraft 26.3,
    Fabric and Java in the background (a few minutes). Skyrim's corner messages tell you when
    Minecraft is ready. After that, Minecraft starts and quits with Skyrim.
+
+### From a terminal instead
+
+```sh
+cd ~
+curl -fsSLO https://raw.githubusercontent.com/chasesfloorboard/SkyCraft-Deck/main/skycraft-deck.sh
+chmod +x skycraft-deck.sh
+./skycraft-deck.sh            # the same guided install
+./skycraft-deck.sh install    # or just install, if the Nexus files are already in ~/Downloads
+./skycraft-deck.sh signin     # then sign in to Minecraft
+```
 
 ## Commands
 
 | | |
 |---|---|
+| `./skycraft-deck.sh` | Guided install or update: waits for Steam, Skyrim and the Nexus downloads, installs, signs in, adds the app menu entry. |
 | `./skycraft-deck.sh install` | Install, or update to the newest SkyCraft. Safe to run again. New Nexus files in `~/Downloads` are picked up too. |
 | `./skycraft-deck.sh signin` | Open SkyCraft's Prism Launcher in Skyrim's prefix (sign in, or switch accounts). |
 | `./skycraft-deck.sh status` | Show what's installed and whether Minecraft is signed in. |
@@ -96,7 +95,7 @@ latest one) and `SKYCRAFT_MC_MEMORY=<MB>` (Minecraft's memory limit).
 - **Skyrim updates break SKSE.** After a Skyrim update, Skyrim won't start through SKSE until there's
   an SKSE build (and Address Library) for the new version. Download the new files and run `install`
   again. A Skyrim update or **Verify integrity of game files** also puts Bethesda's launcher back.
-  Running `install` again fixes that.
+  Opening **SkyCraft** from the app menu (or running `install` again) fixes that.
 - **Memory:** on a Steam Deck the installer limits Minecraft to 3 GB (it's 4 GB elsewhere); in
   testing, Minecraft used about 3.3 GB and Skyrim about 2.2 GB. Set your own limit with
   `SKYCRAFT_MC_MEMORY=<MB> ./skycraft-deck.sh install`. Keep other Skyrim mods light.

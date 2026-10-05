@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# SkyCraft for Steam Deck (https://github.com/chasesfloorboard/SkyCraft-Deck): installs SkyCraft (https://github.com/chasmlol/SkyCraft) into Steam's
-# Skyrim Special Edition and its Proton prefix. Run it in Desktop Mode, from Konsole.
+# SkyCraft for Steam Deck (https://github.com/chasesfloorboard/SkyCraft-Deck): installs SkyCraft
+# (https://github.com/chasmlol/SkyCraft) into Steam's Skyrim Special Edition and its Proton prefix.
+# Run it in Desktop Mode. Double-clicked, it opens a terminal and walks through everything.
 #
-#   ./skycraft-deck.sh install     install or update everything (the default)
+#   ./skycraft-deck.sh             guided install or update: waits for Steam, Skyrim and the Nexus
+#                                  downloads, installs, signs in to Minecraft (the default)
+#   ./skycraft-deck.sh install     install or update everything, without the guide
 #   ./skycraft-deck.sh signin      open SkyCraft's Prism Launcher to sign in to Minecraft
 #   ./skycraft-deck.sh status      show what's installed
 #   ./skycraft-deck.sh logs        show the end of SkyCraft's and Minecraft's logs
@@ -13,6 +16,23 @@
 # SKYCRAFT_MC_MEMORY (Minecraft's memory limit in MB; 3072 on a Steam Deck by default).
 
 set -euo pipefail
+
+INSTALLER_URL=https://raw.githubusercontent.com/chasesfloorboard/SkyCraft-Deck/main/skycraft-deck.sh
+HOME_DIR=${XDG_DATA_HOME:-$HOME/.local/share}/skycraft-deck
+
+# Started without a terminal (double-clicked in the file manager): open one and run in it.
+if [[ ! -t 0 && ! -t 1 && -z ${SKYCRAFT_IN_TERMINAL:-} ]] && [[ -n ${DISPLAY:-}${WAYLAND_DISPLAY:-} ]] &&
+	[[ ${1:-guided} == guided ]]; then
+	export SKYCRAFT_IN_TERMINAL=1 SKYCRAFT_PAUSE=1
+	self=$(readlink -f "$0")
+	for term in konsole gnome-terminal kgx ptyxis xterm; do
+		command -v "$term" >/dev/null 2>&1 || continue
+		case $term in
+			konsole | xterm) exec "$term" -e bash "$self" "$@" ;;
+			*) exec "$term" -- bash "$self" "$@" ;;
+		esac
+	done
+fi
 
 APPID=489830
 SKYCRAFT_REPO=chasmlol/SkyCraft
@@ -35,6 +55,63 @@ die()  { printf '\n%sError:%s %s\n' "$R" "$N" "$*" >&2; exit 1; }
 
 need() { command -v "$1" >/dev/null 2>&1 || die "this needs '$1', which isn't installed"; }
 
+# A terminal opened just for this closes when it ends; keep it open so its last words can be read.
+GUIDED=''
+pause_on_exit() {
+	local rc=$?
+	if [[ -n $GUIDED || -n ${SKYCRAFT_PAUSE:-} ]] && [[ -t 0 ]]; then
+		printf '\n'
+		read -r -p "Press Enter to close this window. " _ || true
+	fi
+	return $rc
+}
+trap pause_on_exit EXIT
+
+open_url() {
+	if command -v xdg-open >/dev/null 2>&1; then
+		(setsid xdg-open "$1" >/dev/null 2>&1 &)
+	elif [[ $1 == steam://* ]] && command -v steam >/dev/null 2>&1; then
+		(setsid steam "$1" >/dev/null 2>&1 &)
+	fi
+}
+
+# A web browser is set up to open links (SteamOS doesn't come with one).
+has_browser() {
+	command -v xdg-open >/dev/null 2>&1 && command -v xdg-mime >/dev/null 2>&1 &&
+		[[ -n $(xdg-mime query default x-scheme-handler/https 2>/dev/null) ]]
+}
+
+# Opens the given web pages one after another, so a browser that isn't running yet starts once and
+# gets the rest as tabs. Without a browser, offers Firefox from Discover and waits for it.
+open_pages() {
+	local url first=1 key
+	if ! has_browser; then
+		warn "No web browser is installed, so this can't open the pages for you."
+		say "  Opening Discover (the app store) at Firefox: press Install. This goes on by itself when"
+		say "  it's installed. (Or press Enter to skip, and open the links below yourself.)"
+		open_url "appstream://org.mozilla.firefox"
+		until has_browser; do
+			if read -r -t 3 key; then
+				say ""
+				for url in "$@"; do say "    $url"; done
+				return 0
+			fi
+		done
+		ok "Firefox is installed"
+	fi
+	say "  Opening these pages in your web browser:"
+	for url in "$@"; do
+		say "    $url"
+		open_url "$url"
+		if [[ -n $first ]]; then
+			first=''
+			sleep 4
+		else
+			sleep 1
+		fi
+	done
+}
+
 # ---------------------------------------------------------------------------------------------
 # Finding Steam, Skyrim and its Proton prefix
 
@@ -56,8 +133,8 @@ steam_libraries() {
 	sed -n 's/^[[:space:]]*"path"[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' "$STEAM_ROOT/steamapps/libraryfolders.vdf"
 }
 
-find_skyrim() {
-	find_steam_root
+# Sets GAME, PFX and friends if Steam has Skyrim; returns 1 if it doesn't.
+locate_skyrim() {
 	local lib manifest installdir
 	while IFS= read -r lib; do
 		manifest=$lib/steamapps/appmanifest_$APPID.acf
@@ -66,14 +143,20 @@ find_skyrim() {
 		GAME=$lib/steamapps/common/${installdir:-Skyrim Special Edition}
 		COMPAT=$lib/steamapps/compatdata/$APPID
 		LIBRARY=$lib
-		[[ -f $GAME/SkyrimSE.exe ]] || die "Skyrim's Steam files are incomplete ($GAME has no SkyrimSE.exe). Let Steam finish installing it."
+		ACF=$manifest
+		[[ -f $GAME/SkyrimSE.exe ]] || return 1
 		PFX=$COMPAT/pfx
 		USERDIR=$PFX/drive_c/users/steamuser
 		LOCALAPPDATA=$USERDIR/AppData/Local
 		MANIFEST=$GAME/.skycraft-deck/installed-files
-		return
+		return 0
 	done < <(steam_libraries | awk '!seen[$0]++')
-	die "Skyrim Special Edition isn't installed in Steam (app $APPID). Install it first."
+	return 1
+}
+
+find_skyrim() {
+	find_steam_root
+	locate_skyrim || die "Skyrim Special Edition isn't installed in Steam (app $APPID). Install it first."
 }
 
 need_prefix() {
@@ -176,12 +259,26 @@ with open(manifest, "a") as out:
 EOF
 }
 
-# Newest file in $DOWNLOADS matching any of the given name patterns.
+# What the Nexus downloads are called (Nexus has used "<name>-<mod id>-<version>-<time>.zip" and
+# "<name> <mod id> <version> <date> <id>.zip").
+SKSE_FILES=('skse64_2_*.7z' '*Skyrim Script Extender*.7z' '*[- ]30379[- ]*.7z' '*[- ]30379[- ]*.zip')
+ADDRESS_LIBRARY_FILES=('*Address Library*' '*All in one (Anniversary Edition)*' '*[- ]32444[- ]*')
+ALTERNATE_START_FILES=('*Alternate Start*' '*-272-*' '* 272 [0-9]*')
+SKSE_PAGE=https://www.nexusmods.com/skyrimspecialedition/mods/30379?tab=files
+ADDRESS_LIBRARY_PAGE=https://www.nexusmods.com/skyrimspecialedition/mods/32444?tab=files
+ALTERNATE_START_PAGE=https://www.nexusmods.com/skyrimspecialedition/mods/272?tab=files
+
+# Newest finished file in $DOWNLOADS matching any of the given name patterns. Browsers write a
+# download to a .part/.crdownload file (Firefox also leaves an empty file under the final name).
 newest_download() {
-	local pattern found=() IFS=
+	local pattern file found=() IFS=
 	shopt -s nullglob nocaseglob
 	for pattern in "$@"; do
-		found+=("$DOWNLOADS"/$pattern)
+		for file in "$DOWNLOADS"/$pattern; do
+			case ${file,,} in *.part | *.crdownload | *.tmp | *.download | *.partial) continue ;; esac
+			[[ -s $file && ! -e $file.part ]] || continue
+			found+=("$file")
+		done
 	done
 	shopt -u nullglob nocaseglob
 	[[ ${#found[@]} -gt 0 ]] || return 1
@@ -243,28 +340,32 @@ install_vcredist() {
 
 # Wine rewrites user.reg when the prefix's wineserver exits, so nothing may be running in it while
 # we change it. Its working folder is /tmp/.wine-<uid>/server-<device>-<inode of the prefix>.
-need_prefix_idle() {
+prefix_idle() {
 	local server pid
+	[[ -d $PFX ]] || return 0
 	server=$(stat -c '%d %i' "$PFX" | awk '{printf "server-%x-%x", $1, $2}')
 	for pid in $(pgrep -x wineserver 2>/dev/null); do
-		if [[ $(readlink "/proc/$pid/cwd" 2>/dev/null) == */"$server" ]]; then
-			die "Skyrim (or something else in its Proton prefix) is running. Quit it, then run this again."
-		fi
+		[[ $(readlink "/proc/$pid/cwd" 2>/dev/null) == */"$server" ]] && return 1
 	done
+	return 0
+}
+
+need_prefix_idle() {
+	prefix_idle || die "Skyrim (or something else in its Proton prefix) is running. Quit it, then run this again."
 }
 
 install_skse() {
 	step "SKSE64"
 	local archive have=''
 	[[ -f $GAME/skse64_loader.exe ]] && have=1
-	if ! archive=$(newest_download 'skse64_2_*.7z' '*Skyrim Script Extender*.7z' '*[- ]30379[- ]*.7z' '*[- ]30379[- ]*.zip'); then
+	if ! archive=$(newest_download "${SKSE_FILES[@]}"); then
 		if [[ -n $have ]]; then
 			ok "already installed"
 			return
 		fi
 		die "SKSE64 isn't in $DOWNLOADS.
   Download the Anniversary Edition build (for game version $SKYRIM_VERSION) from
-    https://www.nexusmods.com/skyrimspecialedition/mods/30379?tab=files
+    $SKSE_PAGE
   (Manual Download), leave it in $DOWNLOADS, and run this again."
 	fi
 	[[ $(basename "$archive") == *gog* ]] && die "$(basename "$archive") is the GOG build of SKSE; Steam's Skyrim needs the Steam (Anniversary Edition) build"
@@ -293,14 +394,14 @@ install_skse() {
 install_address_library() {
 	step "Address Library for SKSE Plugins"
 	local archive
-	if ! archive=$(newest_download '*Address Library*' '*All in one (Anniversary Edition)*' '*[- ]32444[- ]*'); then
+	if ! archive=$(newest_download "${ADDRESS_LIBRARY_FILES[@]}"); then
 		if compgen -G "$GAME/Data/SKSE/Plugins/versionlib-*.bin" >/dev/null; then
 			ok "already installed"
 			return
 		fi
 		die "Address Library isn't in $DOWNLOADS.
   Download \"All in one (Anniversary Edition)\" from
-    https://www.nexusmods.com/skyrimspecialedition/mods/32444?tab=files
+    $ADDRESS_LIBRARY_PAGE
   (Manual Download), leave it in $DOWNLOADS, and run this again."
 	fi
 	local tmp
@@ -316,7 +417,7 @@ install_address_library() {
 install_alternate_start() {
 	step "Alternate Start - Live Another Life (optional, recommended)"
 	local archive
-	if ! archive=$(newest_download '*Alternate Start*' '*-272-*' '* 272 [0-9]*'); then
+	if ! archive=$(newest_download "${ALTERNATE_START_FILES[@]}"); then
 		warn "not in $DOWNLOADS, skipped. Skyrim's opening (cart ride, Helgen) may leave you stuck with"
 		warn "SkyCraft; get it from https://www.nexusmods.com/skyrimspecialedition/mods/272 or play from a save after Helgen."
 		return
@@ -496,6 +597,7 @@ cmd_install() {
 	install_skycraft
 	install_loader
 
+	[[ -z $GUIDED ]] || return 0
 	step "Done"
 	cat <<EOF
   Next:
@@ -506,6 +608,194 @@ cmd_install() {
       (a few minutes); Skyrim's corner messages say when Minecraft is ready.
 
   Problems? ./skycraft-deck.sh logs
+EOF
+}
+
+# Steam has finished downloading Skyrim (StateFlags 4: fully installed, no update pending).
+skyrim_ready() { locate_skyrim && grep -qE '^[[:space:]]*"StateFlags"[[:space:]]*"4"' "$ACF"; }
+
+signed_in() { grep -qs '"type"' "$LOCALAPPDATA/SkyCraft/Prism/accounts.json"; }
+
+# ---------------------------------------------------------------------------------------------
+# guided: everything, in order, waiting for the player where it has to
+
+wait_for_nexus_files() {
+	local skse addr alt shown='' now key
+	while :; do
+		skse='' addr='' alt=''
+		{ newest_download "${SKSE_FILES[@]}" >/dev/null || [[ -f $GAME/skse64_loader.exe ]]; } && skse=1
+		{ newest_download "${ADDRESS_LIBRARY_FILES[@]}" >/dev/null || compgen -G "$GAME/Data/SKSE/Plugins/versionlib-*.bin" >/dev/null; } && addr=1
+		{ newest_download "${ALTERNATE_START_FILES[@]}" >/dev/null || [[ -f $GAME/.skycraft-deck/plugins ]]; } && alt=1
+		now="$skse/$addr/$alt"
+		if [[ -z $shown ]]; then
+			[[ $now == 1/1/1 ]] && return 0
+			step "Download 3 mods from Nexus Mods"
+			cat <<EOF
+  SkyCraft needs two small mods from Nexus Mods, plus one more that's recommended. Nexus only
+  lets you download them yourself, so this opens their pages in your web browser. On each page:
+
+    1. Log in to Nexus Mods (a free account is fine).
+    2. On the Files tab, press "Manual Download" on the file named below, then "Slow download".
+    3. Leave the file in your Downloads folder. This window sees it arrive by itself.
+
+EOF
+			local pages=()
+			[[ -n $skse ]] || pages+=("$SKSE_PAGE")
+			[[ -n $addr ]] || pages+=("$ADDRESS_LIBRARY_PAGE")
+			[[ -n $alt ]] || pages+=("$ALTERNATE_START_PAGE")
+			open_pages "${pages[@]}"
+			say ""
+		fi
+		if [[ $now != "$shown" ]]; then
+			shown=$now
+			printf '  %s  SKSE64: the main file for Steam ("Skyrim Script Extender (SKSE64) Steam")\n' "$([[ -n $skse ]] && echo "$G✓$N" || echo "$Y…$N")"
+			printf '  %s  Address Library: "All in One (Anniversary Edition)"\n' "$([[ -n $addr ]] && echo "$G✓$N" || echo "$Y…$N")"
+			printf '  %s  Alternate Start: the main file (recommended: Skyrim'"'"'s opening can get you stuck)\n' "$([[ -n $alt ]] && echo "$G✓$N" || echo "$Y…$N")"
+			[[ $now == 1/1/1 ]] && return 0
+			if [[ -n $skse && -n $addr ]]; then
+				say "  Press Enter to go on without Alternate Start, or download it and this goes on by itself."
+			else
+				say "  Waiting for the downloads..."
+			fi
+		fi
+		if read -r -t 3 key; then
+			[[ -n $skse && -n $addr ]] && return 0
+			say "  Still waiting for $([[ -n $skse ]] || printf 'SKSE64 ')$([[ -n $addr ]] || printf 'Address Library')."
+		fi
+	done
+}
+
+guided_signin() {
+	while ! signed_in; do
+		step "Sign in to Minecraft"
+		cat <<EOF
+  A window called Prism Launcher opens (it can take a few seconds the first time).
+
+    1. Click "Accounts" at the top right, then "Manage Accounts", then "Add Microsoft".
+    2. It shows a code and a QR code. On your phone (or any browser), open the link it
+       shows or scan the QR code, enter the code, and sign in with the Microsoft account
+       that owns Minecraft: Java Edition.
+    3. When your Minecraft name shows up in the list, close the Prism Launcher window.
+       (Don't press Launch: Skyrim starts Minecraft by itself.)
+
+EOF
+		read -r -p "  Press Enter to open Prism Launcher. " _
+		cmd_signin
+		if ! signed_in; then
+			warn "No Minecraft account is signed in yet. Let's try again."
+		fi
+	done
+}
+
+# Keeps a copy of this installer and puts "SkyCraft" in the app menu (Games), to update, repair,
+# sign in again or uninstall later. It fetches the newest installer each time it's opened.
+install_shortcut() {
+	local self target=$HOME_DIR/skycraft-deck.sh apps=${XDG_DATA_HOME:-$HOME/.local/share}/applications
+	self=$(readlink -f "$0" 2>/dev/null || true)
+	mkdir -p "$HOME_DIR" "$apps"
+	if [[ -f $self && $self != "$(readlink -f "$target" 2>/dev/null)" ]]; then
+		cp "$self" "$target"
+	fi
+	[[ -f $target ]] || curl -fsSL "$INSTALLER_URL" -o "$target" || return 0
+	chmod +x "$target"
+	cat >"$HOME_DIR/launch" <<EOF
+#!/usr/bin/env bash
+# Started by the "SkyCraft" app menu entry: fetch the newest installer, then run it.
+target="$target"
+if curl -fsSL "$INSTALLER_URL" -o "\$target.new"; then
+	mv -f "\$target.new" "\$target"
+else
+	rm -f "\$target.new"
+	echo "(Couldn't check for a newer installer; using the one from last time.)"
+fi
+SKYCRAFT_PAUSE=1 exec bash "\$target" "\$@"
+EOF
+	chmod +x "$HOME_DIR/launch"
+	local run="bash \"$HOME_DIR/launch\""
+	cat >"$apps/skycraft-deck.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=SkyCraft
+GenericName=SkyCraft installer
+Comment=Update or repair SkyCraft for Skyrim, sign in to Minecraft, or uninstall
+Icon=applications-games
+Categories=Game;
+Terminal=true
+Exec=$run guided
+Actions=signin;logs;uninstall;
+
+[Desktop Action signin]
+Name=Sign in to Minecraft again
+Exec=$run signin
+
+[Desktop Action logs]
+Name=Show logs (for bug reports)
+Exec=$run logs
+
+[Desktop Action uninstall]
+Name=Uninstall SkyCraft
+Exec=$run uninstall
+EOF
+	command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$apps" >/dev/null 2>&1 || true
+	ok "\"SkyCraft\" is in your app menu (Games) to update, repair or uninstall later"
+}
+
+cmd_guided() {
+	GUIDED=1
+	need python3
+	need curl
+	cat <<EOF
+
+${B}SkyCraft for Steam Deck${N}
+Play Skyrim as a Minecraft player. This sets everything up; it tells you when it needs you.
+You need Skyrim Special Edition on Steam and a Microsoft account that owns Minecraft: Java Edition.
+EOF
+	find_steam_root
+	if ! locate_skyrim; then
+		step "Install Skyrim Special Edition"
+		say "  Skyrim Special Edition isn't installed yet. Opening Steam to install it: click Install."
+		say "  This window waits until Steam has finished (it can take a while), then carries on."
+		open_url "steam://install/$APPID"
+		until skyrim_ready; do sleep 10; done
+		ok "Skyrim is installed"
+	fi
+	if [[ ! -d $USERDIR ]]; then
+		step "Start Skyrim once"
+		cat <<EOF
+  Skyrim has to start once so Steam can set it up. Starting it now:
+  if a launcher window appears, press Play. Wait for Skyrim's main menu, then choose Quit.
+EOF
+		open_url "steam://rungameid/$APPID"
+		until [[ -d $USERDIR ]]; do sleep 3; done
+		local i
+		for ((i = 0; i < 40; i++)); do prefix_idle || break; sleep 3; done
+		say "  Waiting for Skyrim to close..."
+		until prefix_idle; do sleep 3; done
+		ok "Skyrim is set up"
+	elif ! prefix_idle; then
+		step "Close Skyrim"
+		say "  Skyrim is running. Quit it, and this carries on by itself."
+		until prefix_idle; do sleep 3; done
+	fi
+
+	wait_for_nexus_files
+	cmd_install
+	guided_signin
+	step "Finishing up"
+	install_shortcut
+
+	step "All done!"
+	cat <<EOF
+  One last thing, controls: SkyCraft is played with keyboard and mouse controls.
+  In Game Mode, select Skyrim, press the controller icon, and pick the template
+  "Keyboard (WASD) and Mouse". A full button layout:
+  https://github.com/chasesfloorboard/SkyCraft-Deck/blob/main/docs/controls.md
+
+  Then press Play. The first start, Minecraft downloads in the background (a few
+  minutes); messages in Skyrim's top-left corner tell you when it's ready.
+  Tip: cap the frame rate at 30 in the Quick Access menu (...) > Performance.
+
+  To update SkyCraft later, open "SkyCraft" from the app menu (Games) in Desktop Mode.
 EOF
 }
 
@@ -652,6 +942,11 @@ cmd_logs() {
 
 cmd_uninstall() {
 	find_skyrim
+	if [[ -n ${SKYCRAFT_PAUSE:-} && -t 0 ]]; then
+		local answer
+		read -r -p "Remove SkyCraft, SKSE and the other mods this installed from Skyrim? [y/N] " answer
+		[[ $answer == [yY]* ]] || { say "Nothing removed."; return 0; }
+	fi
 	step "Removing SkyCraft, SKSE, Address Library and Alternate Start files installed by this script"
 	local plugins=$LOCALAPPDATA/Skyrim\ Special\ Edition/Plugins.txt
 	if [[ -f $GAME/.skycraft-deck/plugins && -f $plugins ]]; then
@@ -690,12 +985,13 @@ PY
 	fi
 }
 
-case ${1:-install} in
+case ${1:-guided} in
+	guided) cmd_guided ;;
 	install | update) cmd_install ;;
 	signin) cmd_signin ;;
 	status) cmd_status ;;
 	logs) cmd_logs ;;
 	uninstall) cmd_uninstall "${2:-}" ;;
-	-h | --help | help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//' ;;
-	*) die "unknown command '$1' (install, signin, status, logs, uninstall)" ;;
+	-h | --help | help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//' ;;
+	*) die "unknown command '$1' (guided, install, signin, status, logs, uninstall)" ;;
 esac
