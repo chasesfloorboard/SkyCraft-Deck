@@ -1,16 +1,35 @@
 # Controls on the Steam Deck
 
-SkyCraft reads **keyboard and mouse** only, because Minecraft does. The Deck's controller therefore
-has to send keys and mouse movement to Skyrim, which Steam Input does.
+The installer adds [Controlify](https://modrinth.com/mod/controlify), a controller mod, to
+SkyCraft's Minecraft. Minecraft reads the Deck's controller as a gamepad, so Skyrim keeps Steam's
+**Gamepad** layout. Looking around and clicking still go through SkyCraft as mouse input, so the
+right stick and right trackpad have to send mouse movement.
 
 ## Set it up
+
+1. In Game Mode, select Skyrim, then the **controller icon** (Controller Settings) > **Edit Layout**.
+   (Or in Desktop Mode: Steam > Skyrim > Manage > Controller Layout.) Leave the layout on
+   **Gamepad**; don't switch templates.
+2. **Joysticks** > **Right Joystick**: set its behavior to **Joystick Mouse**. That's how you look
+   around.
+3. **Trackpads** > **Right Trackpad**: set its behavior to **Mouse**, and set its **Click** to
+   **Left Mouse Click**. That's for fine aiming and the cursor in Minecraft screens (inventory,
+   crafting, chests).
+4. Leave everything else as it is, and play.
+
+Tested on a Steam Deck LCD (SteamOS 3.7) with SkyCraft 0.1.2 and Controlify 3.5.3.
+
+## Keyboard and mouse layout (without Controlify)
+
+If you install with `SKYCRAFT_CONTROLLER=0`, or Controlify doesn't work for you, SkyCraft reads
+**keyboard and mouse** only, because Minecraft does. The controller then has to send keys and mouse
+movement to Skyrim, which Steam Input does:
 
 1. In Game Mode, select Skyrim, then the **controller icon** (Controller Settings).
 2. **Edit Layout** > **Templates** > **Keyboard (WASD) and Mouse**. Apply it.
 3. Change the buttons below to match SkyCraft's keys (**Edit Layout** > *Buttons*, *Triggers*, ...).
-   You can also set it up in Desktop Mode: Steam > Skyrim > Manage > Controller Layout.
 
-## Suggested layout
+### Suggested keyboard and mouse layout
 
 | Deck control | Key / mouse | In SkyCraft |
 |---|---|---|

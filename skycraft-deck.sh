@@ -59,6 +59,7 @@ need() { command -v "$1" >/dev/null 2>&1 || die "this needs '$1', which isn't in
 GUIDED=''
 pause_on_exit() {
 	local rc=$?
+	touchscreen_on
 	if [[ -n $GUIDED || -n ${SKYCRAFT_PAUSE:-} ]] && [[ -t 0 ]]; then
 		printf '\n'
 		read -r -p "Press Enter to close this window. " _ || true
@@ -66,6 +67,146 @@ pause_on_exit() {
 	return $rc
 }
 trap pause_on_exit EXIT
+
+# Wine doesn't implement GetPointerFrameTouchInfo, which Qt 6 calls on a touch: one tap on the
+# Deck's screen aborts Prism. While Prism is open, switch touchscreens off for the X session (the
+# "Device Enabled" property xinput sets; SteamOS has no xinput) and back on afterwards.
+TOUCH_IDS=''
+touchscreen_off() {
+	[[ -n ${DISPLAY:-} ]] || return 0
+	TOUCH_IDS=$(
+		python3 - off 2>/dev/null <<'PY'
+import ctypes, ctypes.util, sys
+
+X = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
+Xi = ctypes.CDLL(ctypes.util.find_library("Xi") or "libXi.so.6")
+X.XOpenDisplay.restype = ctypes.c_void_p
+X.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+X.XInternAtom.restype = ctypes.c_ulong
+X.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
+X.XCloseDisplay.argtypes = [ctypes.c_void_p]
+
+
+class XIDeviceInfo(ctypes.Structure):
+    _fields_ = [("deviceid", ctypes.c_int), ("name", ctypes.c_char_p), ("use", ctypes.c_int),
+                ("attachment", ctypes.c_int), ("enabled", ctypes.c_int), ("num_classes", ctypes.c_int),
+                ("classes", ctypes.POINTER(ctypes.POINTER(ctypes.c_int)))]
+
+
+Xi.XIQueryVersion.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int)]
+Xi.XIQueryDevice.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
+Xi.XIQueryDevice.restype = ctypes.POINTER(XIDeviceInfo)
+Xi.XIFreeDeviceInfo.argtypes = [ctypes.POINTER(XIDeviceInfo)]
+Xi.XIChangeProperty.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_int,
+                                ctypes.c_int, ctypes.POINTER(ctypes.c_ubyte), ctypes.c_int]
+
+dpy = X.XOpenDisplay(None)
+if not dpy:
+    sys.exit(2)
+major, minor = ctypes.c_int(2), ctypes.c_int(2)
+if Xi.XIQueryVersion(dpy, ctypes.byref(major), ctypes.byref(minor)) != 0:
+    sys.exit(2)
+enabled_atom = X.XInternAtom(dpy, b"Device Enabled", 0)
+
+
+def set_enabled(dev, value):
+    data = (ctypes.c_ubyte * 1)(value)
+    Xi.XIChangeProperty(dpy, dev, enabled_atom, 19, 8, 0, data, 1)  # XA_INTEGER, PropModeReplace
+
+
+if sys.argv[1] == "off":
+    XI_SLAVE_POINTER, XI_TOUCH_CLASS, XI_DIRECT_TOUCH = 3, 8, 1
+    n = ctypes.c_int()
+    info = Xi.XIQueryDevice(dpy, 0, ctypes.byref(n))  # XIAllDevices
+    ids = []
+    for i in range(n.value):
+        d = info[i]
+        if d.use != XI_SLAVE_POINTER or not d.enabled:
+            continue
+        for c in range(d.num_classes):
+            cls = d.classes[c]  # XITouchClassInfo: type, sourceid, mode, num_touches
+            if cls[0] == XI_TOUCH_CLASS and cls[2] == XI_DIRECT_TOUCH:
+                ids.append(d.deviceid)
+                break
+    Xi.XIFreeDeviceInfo(info)
+    for dev in ids:
+        set_enabled(dev, 0)
+    print(" ".join(map(str, ids)))
+else:
+    for dev in sys.argv[2:]:
+        set_enabled(int(dev), 1)
+X.XSync(dpy, 0)
+X.XCloseDisplay(dpy)
+PY
+	) || TOUCH_IDS=''
+}
+touchscreen_on() {
+	[[ -n $TOUCH_IDS ]] || return 0
+	python3 - on $TOUCH_IDS <<'PY' 2>/dev/null || true
+import ctypes, ctypes.util, sys
+
+X = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
+Xi = ctypes.CDLL(ctypes.util.find_library("Xi") or "libXi.so.6")
+X.XOpenDisplay.restype = ctypes.c_void_p
+X.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+X.XInternAtom.restype = ctypes.c_ulong
+X.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
+X.XCloseDisplay.argtypes = [ctypes.c_void_p]
+
+
+class XIDeviceInfo(ctypes.Structure):
+    _fields_ = [("deviceid", ctypes.c_int), ("name", ctypes.c_char_p), ("use", ctypes.c_int),
+                ("attachment", ctypes.c_int), ("enabled", ctypes.c_int), ("num_classes", ctypes.c_int),
+                ("classes", ctypes.POINTER(ctypes.POINTER(ctypes.c_int)))]
+
+
+Xi.XIQueryVersion.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int)]
+Xi.XIQueryDevice.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
+Xi.XIQueryDevice.restype = ctypes.POINTER(XIDeviceInfo)
+Xi.XIFreeDeviceInfo.argtypes = [ctypes.POINTER(XIDeviceInfo)]
+Xi.XIChangeProperty.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_int,
+                                ctypes.c_int, ctypes.POINTER(ctypes.c_ubyte), ctypes.c_int]
+
+dpy = X.XOpenDisplay(None)
+if not dpy:
+    sys.exit(2)
+major, minor = ctypes.c_int(2), ctypes.c_int(2)
+if Xi.XIQueryVersion(dpy, ctypes.byref(major), ctypes.byref(minor)) != 0:
+    sys.exit(2)
+enabled_atom = X.XInternAtom(dpy, b"Device Enabled", 0)
+
+
+def set_enabled(dev, value):
+    data = (ctypes.c_ubyte * 1)(value)
+    Xi.XIChangeProperty(dpy, dev, enabled_atom, 19, 8, 0, data, 1)  # XA_INTEGER, PropModeReplace
+
+
+if sys.argv[1] == "off":
+    XI_SLAVE_POINTER, XI_TOUCH_CLASS, XI_DIRECT_TOUCH = 3, 8, 1
+    n = ctypes.c_int()
+    info = Xi.XIQueryDevice(dpy, 0, ctypes.byref(n))  # XIAllDevices
+    ids = []
+    for i in range(n.value):
+        d = info[i]
+        if d.use != XI_SLAVE_POINTER or not d.enabled:
+            continue
+        for c in range(d.num_classes):
+            cls = d.classes[c]  # XITouchClassInfo: type, sourceid, mode, num_touches
+            if cls[0] == XI_TOUCH_CLASS and cls[2] == XI_DIRECT_TOUCH:
+                ids.append(d.deviceid)
+                break
+    Xi.XIFreeDeviceInfo(info)
+    for dev in ids:
+        set_enabled(dev, 0)
+    print(" ".join(map(str, ids)))
+else:
+    for dev in sys.argv[2:]:
+        set_enabled(int(dev), 1)
+X.XSync(dpy, 0)
+X.XCloseDisplay(dpy)
+PY
+	TOUCH_IDS=''
+}
 
 open_url() {
 	if command -v xdg-open >/dev/null 2>&1; then
@@ -501,6 +642,7 @@ EOF
 	ok "unpacked to the Proton prefix (C:\\users\\steamuser\\AppData\\Local\\SkyCraft)"
 	use_wine_vcruntime_for_prism
 	set_minecraft_memory "$dir/Prism/instances/SkyCraft/instance.cfg"
+	install_controller_mod "$dir/Prism/instances/SkyCraft"
 	if [[ -f $dir/Prism/accounts.json ]] && grep -q '"type"' "$dir/Prism/accounts.json"; then
 		ok "a Microsoft account is signed in"
 	else
@@ -513,6 +655,67 @@ EOF
 # the GPU, Skyrim taking 2-3 GB) 3 GB leaves more room and means less garbage collection. The
 # bundle's instance.cfg comes back with every update, so this runs on every install.
 # SKYCRAFT_MC_MEMORY=<MB> sets it anywhere.
+# Controlify (and the YetAnotherConfigLib it needs) in SkyCraft's Minecraft, so Minecraft reads the
+# Deck's controls as a gamepad itself and Skyrim's default controller layout works. The builds for the
+# instance's Minecraft version come from Modrinth, checked against Modrinth's SHA-512, and replace
+# older ones (SkyCraft updates can move to a new Minecraft). SKYCRAFT_CONTROLLER=0 leaves it out.
+CONTROLLER_MODS='controlify yacl'
+install_controller_mod() {
+	local instance=$1
+	local mods=$instance/.minecraft/mods
+	step "Controller support (Controlify)"
+	if [[ ${SKYCRAFT_CONTROLLER:-1} == 0 ]]; then
+		rm -f "$mods"/controlify-*.jar "$mods"/yet_another_config_lib_v3-*.jar
+		ok "left out (SKYCRAFT_CONTROLLER=0)"
+		return 0
+	fi
+	mkdir -p "$mods"
+	local result
+	if ! result=$(python3 - "$instance/mmc-pack.json" "$mods" $CONTROLLER_MODS <<'PY'
+import hashlib, json, os, sys, tempfile, urllib.parse, urllib.request
+
+pack, mods, projects = sys.argv[1], sys.argv[2], sys.argv[3:]
+mc = next(c["version"] for c in json.load(open(pack))["components"] if c["uid"] == "net.minecraft")
+# What each project's jars are called, to replace older builds.
+prefixes = {"controlify": "controlify-", "yacl": "yet_another_config_lib_v3-"}
+
+
+def get(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "SkyCraft-Deck installer (github.com/chasesfloorboard/SkyCraft-Deck)"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return r.read()
+
+
+done = []
+for project in projects:
+    query = urllib.parse.urlencode({"loaders": '["fabric"]', "game_versions": json.dumps([mc])})
+    versions = json.loads(get(f"https://api.modrinth.com/v2/project/{project}/version?{query}"))
+    if not versions:
+        sys.exit(f"{project} has no build for Minecraft {mc} yet")
+    version = next((v for v in versions if v["version_type"] == "release"), versions[0])
+    file = next((f for f in version["files"] if f["primary"]), version["files"][0])
+    target = os.path.join(mods, file["filename"])
+    if not os.path.exists(target) or hashlib.sha512(open(target, "rb").read()).hexdigest() != file["hashes"]["sha512"]:
+        data = get(file["url"])
+        if hashlib.sha512(data).hexdigest() != file["hashes"]["sha512"]:
+            sys.exit(f"{file['filename']} didn't match Modrinth's checksum")
+        fd, tmp = tempfile.mkstemp(dir=mods, suffix=".part")
+        with os.fdopen(fd, "wb") as out:
+            out.write(data)
+        os.replace(tmp, target)
+    for name in os.listdir(mods):
+        if name.startswith(prefixes[project]) and name.endswith(".jar") and name != file["filename"]:
+            os.remove(os.path.join(mods, name))
+    done.append(f"{project} {version['version_number']}")
+print(", ".join(done))
+PY
+	); then
+		warn "couldn't install Controlify (see above); SkyCraft still works with a keyboard-and-mouse layout"
+		return 0
+	fi
+	ok "$result"
+}
+
 set_minecraft_memory() {
 	local cfg=$1 mb=${SKYCRAFT_MC_MEMORY:-} why
 	local dmi=${DMI_DIR:-/sys/devices/virtual/dmi/id}
@@ -602,8 +805,9 @@ cmd_install() {
 	cat <<EOF
   Next:
    1. Sign in to Minecraft once (Desktop Mode):   ./skycraft-deck.sh signin
-   2. Set up controls: SkyCraft uses keyboard and mouse. Give Skyrim a keyboard-and-mouse
-      Steam Input layout; see https://github.com/chasesfloorboard/SkyCraft-Deck/blob/main/docs/controls.md
+   2. Set up controls: keep Skyrim's Gamepad layout, but set the right stick to Joystick Mouse
+      and the right trackpad to Mouse (click: left mouse button); see
+      https://github.com/chasesfloorboard/SkyCraft-Deck/blob/main/docs/controls.md
    3. Start Skyrim from Steam. The first start, Prism downloads Minecraft 26.3 and Java
       (a few minutes); Skyrim's corner messages say when Minecraft is ready.
 
@@ -786,10 +990,11 @@ EOF
 
 	step "All done!"
 	cat <<EOF
-  One last thing, controls: SkyCraft is played with keyboard and mouse controls.
-  In Game Mode, select Skyrim, press the controller icon, and pick the template
-  "Keyboard (WASD) and Mouse". A full button layout:
-  https://github.com/chasesfloorboard/SkyCraft-Deck/blob/main/docs/controls.md
+  One last thing, controls. In Game Mode, select Skyrim, press the controller icon,
+  then Edit Layout, and keep the Gamepad layout but change two things:
+    - Joysticks > Right Joystick: "Joystick Mouse" (to look around)
+    - Trackpads > Right Trackpad: "Mouse", with its click set to the left mouse button
+  Step by step: https://github.com/chasesfloorboard/SkyCraft-Deck/blob/main/docs/controls.md
 
   Then press Play. The first start, Minecraft downloads in the background (a few
   minutes); messages in Skyrim's top-left corner tell you when it's ready.
@@ -856,8 +1061,12 @@ run_in_prefix() {
 		done < <(steam_libraries | awk '!seen[$0]++')
 		[[ -n $runtime ]] || die "$(basename "$PROTON") needs Steam Linux Runtime (app $tool), which isn't installed. Start Skyrim once from Steam (it installs it), then run this again."
 	fi
+	# No SteamAppId/SteamGameId: Proton tags windows with SteamGameId (STEAM_GAME), and Steam then
+	# treats Prism as Skyrim and swaps in Skyrim's controller layout, so the Deck's trackpad stops
+	# working as a mouse.
 	export STEAM_COMPAT_DATA_PATH=$COMPAT STEAM_COMPAT_CLIENT_INSTALL_PATH=$STEAM_ROOT \
-		STEAM_COMPAT_INSTALL_PATH=$GAME SteamAppId=$APPID SteamGameId=$APPID
+		STEAM_COMPAT_INSTALL_PATH=$GAME
+	unset SteamAppId SteamGameId
 	if [[ -n $runtime ]]; then
 		"$runtime" --verb=waitforexitandrun -- "$PROTON/proton" waitforexitandrun "$@"
 	else
@@ -877,7 +1086,15 @@ cmd_signin() {
   a QR code: open the link on your phone (or any browser), enter the code and sign in. Then
   close Prism. Don't launch the SkyCraft instance from here: Skyrim starts it.
 EOF
-	run_in_prefix "$prism"
+	touchscreen_off
+	if [[ -n $TOUCH_IDS ]]; then
+		say "  The touchscreen is off while Prism is open (a tap crashes it under Proton). Use the"
+		say "  right trackpad to move and R2 to click. It comes back on when Prism closes."
+	else
+		say "  Use the trackpad and R2 to click in Prism, not the touchscreen: a tap crashes it."
+	fi
+	run_in_prefix "$prism" || true
+	touchscreen_on
 	if grep -qs '"type"' "$(dirname "$prism")/accounts.json"; then
 		ok "signed in. Start Skyrim from Steam."
 	else

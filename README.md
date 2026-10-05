@@ -14,6 +14,10 @@ SkyCraft is made for Windows. This script handles what's different on the Deck:
   SkyCraft normally does this itself with Windows' `tar.exe`, which Proton doesn't have. The script
   then points `SkyCraft.ini` at that Prism so SkyCraft starts it directly.
 - It opens that Prism **inside Skyrim's prefix** once so you can sign in to your Microsoft account.
+  The Deck's touchscreen is switched off while Prism is open: a tap crashes Prism under Proton
+  (Wine doesn't implement the touch call Qt makes). Use the trackpad and R2.
+- It adds **Controlify** (and YetAnotherConfigLib) to SkyCraft's Minecraft, from Modrinth, so the
+  Deck's controller plays Minecraft's side without a keyboard-and-mouse layout.
 
 Minecraft runs as a Windows program in the same Proton prefix as Skyrim, because SkyCraft's two
 halves talk through Windows shared memory. Skyrim draws everything, and Minecraft stays hidden.
@@ -58,8 +62,10 @@ Everything here happens in **Desktop Mode** (Steam button > Power > Switch to De
      sign in. Close Prism when your name shows up. (Don't press Launch. Skyrim does that.)
    - It adds **SkyCraft** to your app menu (under Games). Open it later to update, sign in
      again, or uninstall (right-click it for those options).
-4. **Set up controls.** SkyCraft is played with keyboard and mouse, so give Skyrim a keyboard and
-   mouse Steam Input layout. See **[docs/controls.md](docs/controls.md)**.
+4. **Set up controls.** The installer adds [Controlify](https://modrinth.com/mod/controlify), a
+   controller mod, to SkyCraft's Minecraft, so Skyrim keeps its Gamepad layout. Change just two
+   things in it: the **right stick** to **Joystick Mouse** and the **right trackpad** to **Mouse**
+   (click = left mouse button). See **[docs/controls.md](docs/controls.md)**.
 5. **Play.** Go back to Game Mode and start Skyrim. The first start, Prism downloads Minecraft 26.3,
    Fabric and Java in the background (a few minutes). Skyrim's corner messages tell you when
    Minecraft is ready. After that, Minecraft starts and quits with Skyrim.
@@ -88,7 +94,8 @@ chmod +x skycraft-deck.sh
 
 Overrides: `DOWNLOADS=/path` (where to look for the Nexus files), `STEAM_ROOT=/path` (Steam's
 folder) and `SKYCRAFT_ZIP=/path/SkyCraft-x.y.z.zip` (a local SkyCraft release instead of the
-latest one) and `SKYCRAFT_MC_MEMORY=<MB>` (Minecraft's memory limit).
+latest one), `SKYCRAFT_MC_MEMORY=<MB>` (Minecraft's memory limit) and `SKYCRAFT_CONTROLLER=0`
+(leave Controlify out).
 
 ## Good to know
 
